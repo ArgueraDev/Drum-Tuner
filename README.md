@@ -4,6 +4,8 @@
 
 Drum Tuner es una aplicación web progresiva (PWA) diseñada para ayudarte a afinar tu batería acústica de forma precisa y sencilla. Utiliza el micrófono de tu dispositivo para detectar la frecuencia del sonido y te guía visualmente para ajustar la tensión de los parches hasta alcanzar la afinación deseada.
 
+Demo: [https://tuusuario.github.io/tu-repo/](https://argueradev.github.io/Drum-Tuner/)
+
 ![Captura de pantalla de Drum Tuner](DT.png)
 
 ## Características
