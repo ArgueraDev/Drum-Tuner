@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drum Tuner</title>
+    <meta name="description"
+        content="Afinador de batería web que utiliza el micrófono para detectar la afinación de los tambores.">
+    <link rel="icon" href="icon-192.png" sizes="192x192">
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .tuner-circle {
+            transition: box-shadow 0.2s ease-in-out;
+        }
+
+        .tuner-needle {
+            transform-origin: bottom center;
+            transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        .note-flat {
+            box-shadow: 0 0 25px 5px rgba(239, 68, 68, 0.6);
+        }
+
+        .note-sharp {
+            box-shadow: 0 0 25px 5px rgba(239, 68, 68, 0.6);
+        }
+
+        .note-in-tune {
+            box-shadow: 0 0 30px 10px rgba(52, 211, 153, 0.7);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-2 select-none">
+
+    <div class="w-full max-w-md mx-auto bg-gray-800 rounded-2xl shadow-2xl p-3 sm:p-4 space-y-3">
+
+        <header class="text-center">
+            <h1 class="text-2xl sm:text-3xl font-bold text-emerald-400">Afinador de Batería</h1>
+        </header>
+
+        <!-- Selector de Nota -->
+        <div class="flex items-center justify-center space-x-2">
+            <label for="note-select" class="text-gray-400">Nota:</label>
+            <select id="note-select" class="bg-gray-700 text-white rounded-md py-2 px-3">
+                <option value="C">C</option>
+                <option value="C#">C#</option>
+                <option value="D">D</option>
+                <option value="D#">D#</option>
+                <option value="E">E</option>
+                <option value="F">F</option>
+                <option value="F#">F#</option>
+                <option value="G">G</option>
+                <option value="G#">G#</option>
+                <option value="A">A</option>
+                <option value="A#">A#</option>
+                <option value="B">B</option>
+            </select>
+
+            <label for="octave-select" class="text-gray-400">Octava:</label>
+            <select id="octave-select" class="bg-gray-700 text-white rounded-md py-2 px-3">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+        </div>
+
+        <!-- Visualizador del Afinador -->
+        <div class="relative flex flex-col items-center justify-center space-y-4">
+            <!-- Nota Objetivo -->
+            <div class="text-center">
+                <span class="text-gray-400 text-sm">NOTA OBJETIVO</span>
+                <p id="target-note-display" class="text-3xl font-bold text-emerald-300">-</p>
+            </div>
+
+            <!-- Círculo del Afinador -->
+            <div id="tuner-circle"
+                class="tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700">
+                <!-- Marcadores -->
+                <div class="absolute top-0 h-full w-full">
+                    <div class="h-4 w-0.5 bg-gray-500 absolute top-2 left-1/2 -translate-x-1/2"></div>
+                    <div class="h-3 w-0.5 bg-gray-600 absolute left-2 top-1/2 -translate-y-1/2 rotate-90"></div>
+                    <div class="h-3 w-0.5 bg-gray-600 absolute right-2 top-1/2 -translate-y-1/2 rotate-90"></div>
+                </div>
+                <!-- Aguja -->
+                <div id="tuner-needle"
+                    class="tuner-needle w-1 h-32 sm:h-36 bg-emerald-400 rounded-t-full absolute bottom-1/2"></div>
+                <!-- Círculo central -->
+                <div class="w-4 h-4 bg-gray-600 rounded-full z-10"></div>
+            </div>
+
+            <!-- Feedback de Afinación -->
+            <div id="tuning-feedback" class="text-2xl font-semibold h-8">-</div>
+
+            <!-- Nota Detectada -->
+            <div class="text-center pt-2">
+                <p id="detected-note" class="text-5xl font-bold">-</p>
+                <p id="detected-freq" class="text-gray-400 text-sm h-5">-</p>
+            </div>
+        </div>
+
+        <!-- Botón de Control -->
+        <div class="text-center">
+            <button id="start-btn"
+                class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-full transition-all duration-200 w-full max-w-xs">
+                Activar Micrófono
+            </button>
+            <p id="error-message" class="text-red-400 mt-2 text-sm h-4"></p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Elementos del DOM
+            const startBtn = document.getElementById('start-btn');
+            const targetNoteDisplay = document.getElementById('target-note-display');
+            const tunerCircle = document.getElementById('tuner-circle');
+            const tunerNeedle = document.getElementById('tuner-needle');
+            const tuningFeedback = document.getElementById('tuning-feedback');
+            const detectedNoteEl = document.getElementById('detected-note');
+            const detectedFreqEl = document.getElementById('detected-freq');
+            const errorMessage = document.getElementById('error-message');
+            const noteSelect = document.getElementById('note-select');
+            const octaveSelect = document.getElementById('octave-select');
+
+            // Configuración del audio
+            let audioContext;
+            let analyser;
+            let source;
+            let mediaStream;
+            let isListening = false;
+            let animationFrameId;
+
+            // Notas musicales
+            const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+            let currentNote = null;
+            let currentOctave = null;
+            let targetNoteInfo = null;
+
+            // --- Funciones Principales ---
+
+            const updateTargetNote = () => {
+                currentNote = noteSelect.value;
+                currentOctave = octaveSelect.value;
+                const targetNoteString = `${currentNote}${currentOctave}`;
+                targetNoteInfo = getNoteDetails(targetNoteString);
+
+                if (targetNoteInfo) {
+                    targetNoteDisplay.textContent = `${targetNoteInfo.note}${targetNoteInfo.octave} (${targetNoteInfo.frequency.toFixed(1)} Hz)`;
+                } else {
+                    targetNoteDisplay.textContent = '-';
+                }
+
+                resetTuner();
+            };
+
+            const toggleListening = async () => {
+                if (isListening) {
+                    stopListening();
+                } else {
+                    await startListening();
+                }
+            };
+
+            const startListening = async () => {
+                if (!currentNote || !currentOctave) {
+                    errorMessage.textContent = 'Por favor, selecciona una nota y octava primero.';
+                    setTimeout(() => errorMessage.textContent = '', 3000);
+                    return;
+                }
+
+                errorMessage.textContent = '';
+
+                try {
+                    if (!audioContext) {
+                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+
+                    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    source = audioContext.createMediaStreamSource(mediaStream);
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                    source.connect(analyser);
+
+                    isListening = true;
+                    startBtn.textContent = 'Detener';
+                    startBtn.classList.replace('bg-emerald-600', 'bg-red-600');
+                    startBtn.classList.replace('hover:bg-emerald-700', 'hover:bg-red-700');
+
+                    analyze();
+                } catch (err) {
+                    console.error('Error al acceder al micrófono:', err);
+                    errorMessage.textContent = 'No se pudo acceder al micrófono.';
+                }
+            };
+
+            const stopListening = () => {
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                if (mediaStream) {
+                    mediaStream.getTracks().forEach(track => track.stop());
+                }
+                if (source) {
+                    source.disconnect();
+                }
+
+                isListening = false;
+                startBtn.textContent = 'Activar Micrófono';
+                startBtn.classList.replace('bg-red-600', 'bg-emerald-600');
+                startBtn.classList.replace('hover:bg-red-700', 'hover:bg-emerald-700');
+                resetTuner();
+            };
+
+            const analyze = () => {
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Float32Array(bufferLength);
+                analyser.getFloatTimeDomainData(dataArray);
+
+                const fundamentalFreq = findFundamentalFreq(dataArray, audioContext.sampleRate, [0, 2000]);
+
+                if (fundamentalFreq) {
+                    updateUI(fundamentalFreq);
+                }
+
+                animationFrameId = requestAnimationFrame(analyze);
+            };
+
+            const updateUI = (freq) => {
+                const noteInfo = frequencyToNoteDetails(freq);
+                const centsOff = calculateCents(freq, targetNoteInfo.frequency);
+
+                detectedNoteEl.textContent = `${noteInfo.note}${noteInfo.octave}`;
+                detectedFreqEl.textContent = `${freq.toFixed(1)} Hz`;
+
+                let status = '';
+                let statusColor = '';
+                let circleClass = '';
+
+                // Solo mostrar feedback si la nota detectada es la correcta
+                if (noteInfo.note === targetNoteInfo.note && noteInfo.octave === targetNoteInfo.octave) {
+                    if (Math.abs(centsOff) < 5) { // Rango de afinación
+                        status = '¡Afinado!';
+                        statusColor = 'text-emerald-400';
+                        circleClass = 'note-in-tune';
+                    } else if (centsOff < 0) {
+                        status = 'Bajo';
+                        statusColor = 'text-red-400';
+                        circleClass = 'note-flat';
+                    } else {
+                        status = 'Alto';
+                        statusColor = 'text-red-400';
+                        circleClass = 'note-sharp';
+                    }
+
+                    // Mover la aguja
+                    // Limitamos la rotación a un máximo de +/- 45 grados
+                    const rotation = Math.max(-45, Math.min(45, centsOff * 0.9));
+                    tunerNeedle.style.transform = `rotate(${rotation}deg)`;
+                } else {
+                    // Si la nota es incorrecta, reseteamos la aguja y el feedback
+                    status = '...';
+                    statusColor = 'text-gray-400';
+                    tunerNeedle.style.transform = 'rotate(0deg)';
+                }
+
+                tuningFeedback.textContent = status;
+                tuningFeedback.className = `text-2xl font-semibold h-8 ${statusColor}`;
+                tunerCircle.className = `tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700 ${circleClass}`;
+            };
+
+            const resetTuner = () => {
+                tunerNeedle.style.transform = 'rotate(0deg)';
+                tuningFeedback.textContent = '-';
+                tuningFeedback.className = 'text-2xl font-semibold h-8';
+                detectedNoteEl.textContent = '-';
+                detectedFreqEl.textContent = '-';
+                tunerCircle.className = `tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700`;
+            };
+
+
+            // --- Funciones de Cálculo ---
+
+            // Algoritmo de Autocorrelación para encontrar frecuencia fundamental
+            function findFundamentalFreq(buffer, sampleRate, freqRange) {
+                const SIZE = buffer.length;
+                let r = new Float32Array(SIZE);
+                for (let i = 0; i < SIZE; i++) {
+                    for (let j = 0; j < SIZE - i; j++) {
+                        r[i] += buffer[j] * buffer[j + i];
+                    }
+                }
+
+                let d = 0;
+                while (d < r.length && r[d] > r[d + 1]) d++;
+
+                let maxval = -1, maxpos = -1;
+                for (let i = d; i < SIZE; i++) {
+                    if (r[i] > maxval) {
+                        maxval = r[i];
+                        maxpos = i;
+                    }
+                }
+
+                if (maxpos === -1) return null;
+
+                // Interpolación para mayor precisión
+                const T0 = maxpos;
+                const x1 = r[T0 - 1], x2 = r[T0], x3 = r[T0 + 1];
+                const a = (x1 + x3 - 2 * x2) / 2;
+                const b = (x3 - x1) / 2;
+                if (a === 0) return null;
+
+                const T_true = T0 - b / (2 * a);
+                const freq = sampleRate / T_true;
+
+                // Filtrar por rango de frecuencia del tambor y RMS para evitar ruido
+                const rms = Math.sqrt(buffer.reduce((s, v) => s + v * v, 0) / buffer.length);
+                if (freq >= freqRange[0] && freq <= freqRange[1] && rms > 0.01) {
+                    return freq;
+                }
+
+                return null;
+            }
+
+            const frequencyToNoteDetails = (frequency) => {
+                const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+                const roundedNote = Math.round(noteNum) + 69;
+                const octave = Math.floor(roundedNote / 12) - 1;
+                const noteIndex = roundedNote % 12;
+                return {
+                    note: noteStrings[noteIndex],
+                    octave: octave
+                };
+            };
+
+            const getNoteDetails = (noteString) => {
+                const noteRegex = /^([A-G]#?)([0-9])$/;
+                const match = noteString.match(noteRegex);
+                if (!match) return null;
+
+                const noteName = match[1];
+                const octave = parseInt(match[2], 10);
+
+                const noteIndex = noteStrings.indexOf(noteName);
+                const noteNum = noteIndex + (octave + 1) * 12;
+
+                const frequency = 440 * Math.pow(2, (noteNum - 69) / 12);
+
+                return { note: noteName, octave, frequency };
+            };
+
+            const calculateCents = (freq1, freq2) => {
+                return 1200 * Math.log2(freq1 / freq2);
+            };
+
+
+            // --- Event Listeners ---
+            startBtn.addEventListener('click', toggleListening);
+            noteSelect.addEventListener('change', updateTargetNote);
+            octaveSelect.addEventListener('change', updateTargetNote);
+
+            // Inicializar con el primer tambor
+            updateTargetNote();
+        });
+    </script>
+</body>
+
+</html>
