@@ -141,12 +141,30 @@
             let isListening = false;
             let animationFrameId;
 
+            // Filtro pasa banda variables
+            let lowFrequency;   // Frecuencia de corte baja
+            let highFrequency; // Frecuencia de corte alta
+            let frequencyMargin = 30; // Margen de frecuencia en Hz
+
+            // Pitch gate variables
+            let amplitudeThreshold = 0.06; // Adjust this value based on your environment
+            let silenceThreshold = 0.005;
+            let isBelowThreshold = false;
+            let belowThresholdStart = null;
+            let silenceDurationThreshold = 100; // milliseconds
+
             // Notas musicales
             const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
             let currentNote = null;
             let currentOctave = null;
             let targetNoteInfo = null;
+
+            // Variables para mantener la última nota y frecuencia detectadas
+            let lastDetectedNote = '-';
+            let lastDetectedFreq = '-';
+            let lastTuningStatus = '-'; // Nuevo: para mantener el último estado de afinación
+            let lastStatusColor = 'text-gray-400'; // Nuevo: para mantener el último color de estado
 
             // --- Funciones Principales ---
 
@@ -158,8 +176,15 @@
 
                 if (targetNoteInfo) {
                     targetNoteDisplay.textContent = `${targetNoteInfo.note}${targetNoteInfo.octave} (${targetNoteInfo.frequency.toFixed(1)} Hz)`;
+
+                    // Actualizar frecuencias de corte del filtro
+                    lowFrequency = Math.max(20, targetNoteInfo.frequency - frequencyMargin);  // Mínimo 20Hz
+                    highFrequency = targetNoteInfo.frequency + frequencyMargin;
+
                 } else {
                     targetNoteDisplay.textContent = '-';
+                    lowFrequency = 80;
+                    highFrequency = 300;
                 }
 
                 resetTuner();
@@ -192,9 +217,23 @@
 
                     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                     source = audioContext.createMediaStreamSource(mediaStream);
+
+                    // Crear filtros pasa banda
+                    const highPassFilter = audioContext.createBiquadFilter();
+                    highPassFilter.type = "highpass";
+                    highPassFilter.frequency.value = lowFrequency;
+
+                    const lowPassFilter = audioContext.createBiquadFilter();
+                    lowPassFilter.type = "lowpass";
+                    lowPassFilter.frequency.value = highFrequency;
+
+                    // Conectar los nodos
+                    source.connect(highPassFilter);
+                    highPassFilter.connect(lowPassFilter);
+
                     analyser = audioContext.createAnalyser();
                     analyser.fftSize = 2048;
-                    source.connect(analyser);
+                    lowPassFilter.connect(analyser);
 
                     isListening = true;
                     startBtn.textContent = 'Detener';
@@ -231,10 +270,26 @@
                 const dataArray = new Float32Array(bufferLength);
                 analyser.getFloatTimeDomainData(dataArray);
 
-                const fundamentalFreq = findFundamentalFreq(dataArray, audioContext.sampleRate, [0, 2000]);
+                // Calculate RMS amplitude
+                const rms = Math.sqrt(dataArray.reduce((s, v) => s + v * v, 0) / dataArray.length);
+
+                // Apply pitch gate
+                if (rms > amplitudeThreshold) {
+                    isBelowThreshold = false;
+                    fundamentalFreq = findFundamentalFreq(dataArray, audioContext.sampleRate, [0, 2000]);
+                } else {
+                    fundamentalFreq = null;
+                }
 
                 if (fundamentalFreq) {
                     updateUI(fundamentalFreq);
+                } else {
+                    // Si no se detecta frecuencia, mantener los últimos valores
+                    detectedNoteEl.textContent = lastDetectedNote;
+                    detectedFreqEl.textContent = lastDetectedFreq;
+                    tuningFeedback.textContent = lastTuningStatus; // Mostrar el último estado
+                    tuningFeedback.className = `text-2xl font-semibold h-8 ${lastStatusColor}`; // Mostrar el último color
+                    resetTuner();
                 }
 
                 animationFrameId = requestAnimationFrame(analyze);
@@ -247,9 +302,16 @@
                 detectedNoteEl.textContent = `${noteInfo.note}${noteInfo.octave}`;
                 detectedFreqEl.textContent = `${freq.toFixed(1)} Hz`;
 
+                // Actualizar las últimas notas detectadas
+                lastDetectedNote = `${noteInfo.note}${noteInfo.octave}`;
+                lastDetectedFreq = `${freq.toFixed(1)} Hz`;
+
                 let status = '';
                 let statusColor = '';
                 let circleClass = '';
+
+                // Resetear la aguja a la posición central antes de calcular la nueva rotación
+                tunerNeedle.style.transform = 'rotate(0deg)';
 
                 // Solo mostrar feedback si la nota detectada es la correcta
                 if (noteInfo.note === targetNoteInfo.note && noteInfo.octave === targetNoteInfo.octave) {
@@ -281,14 +343,16 @@
                 tuningFeedback.textContent = status;
                 tuningFeedback.className = `text-2xl font-semibold h-8 ${statusColor}`;
                 tunerCircle.className = `tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700 ${circleClass}`;
+
+                // Actualizar el último estado de afinación y color
+                lastTuningStatus = status;
+                lastStatusColor = statusColor;
             };
 
             const resetTuner = () => {
                 tunerNeedle.style.transform = 'rotate(0deg)';
                 tuningFeedback.textContent = '-';
                 tuningFeedback.className = 'text-2xl font-semibold h-8';
-                detectedNoteEl.textContent = '-';
-                detectedFreqEl.textContent = '-';
                 tunerCircle.className = `tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700`;
             };
 
