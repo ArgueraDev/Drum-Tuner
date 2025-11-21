@@ -17,7 +17,9 @@
     />
     <!-- TensorFlow.js para detección de pitch basada en IA -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
-    <script src="https://cdn.jsdelivr.net/npm/essentia.js/dist/essentia-wasm.umd.js"></script>
+    <!-- Librería CREPE para detección de pitch con IA -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+    <script src="https://unpkg.com/@tensorflow-models/pitch-detection@0.0.5/dist/pitch-detection.js"></script>
     <style>
       body {
         font-family: "Inter", sans-serif;
@@ -28,26 +30,23 @@
         --glow-success: rgba(52, 211, 153, 0.7);
         --glow-warning: rgba(239, 68, 68, 0.6);
       }
-      
+
       .tuner-circle {
         transition: all 0.3s ease-in-out;
         position: relative;
         backdrop-filter: blur(8px);
       }
-      
+
       .tuner-circle::before {
-        content: '';
+        content: "";
         position: absolute;
         inset: -2px;
         border-radius: 50%;
         padding: 2px;
         background: linear-gradient(45deg, #2dd4bf, #10b981);
-        -webkit-mask: 
-          linear-gradient(#fff 0 0) content-box, 
+        -webkit-mask: linear-gradient(#fff 0 0) content-box,
           linear-gradient(#fff 0 0);
-        mask: 
-          linear-gradient(#fff 0 0) content-box, 
-          linear-gradient(#fff 0 0);
+        mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
         -webkit-mask-composite: xor;
         mask-composite: exclude;
         opacity: 0.7;
@@ -56,8 +55,56 @@
 
       .tuner-needle {
         transform-origin: bottom center;
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
+        transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        box-shadow: 0 0 15px rgba(52, 211, 153, 0.8);
+        filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.6));
+        position: relative;
+      }
+
+      .tuner-needle::after {
+        content: "";
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          to top,
+          rgba(52, 211, 153, 0.9),
+          rgba(16, 185, 129, 0.5)
+        );
+        border-radius: 2px;
+        box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.3);
+      }
+
+      /* Pulsación cuando está afinado */
+      @keyframes tuned-pulse {
+        0%,
+        100% {
+          filter: drop-shadow(0 0 15px rgba(52, 211, 153, 0.8));
+          transform: scaleY(1);
+        }
+        50% {
+          filter: drop-shadow(0 0 25px rgba(16, 185, 129, 1));
+          transform: scaleY(1.02);
+        }
+      }
+
+      .tuner-needle.tuned {
+        animation: tuned-pulse 0.6s ease-in-out infinite;
+      }
+
+      /* Vibración cuando está desafinado */
+      @keyframes out-of-tune {
+        0%,
+        100% {
+          filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.6));
+        }
+        50% {
+          filter: drop-shadow(0 0 25px rgba(220, 38, 38, 0.9));
+        }
+      }
+
+      .tuner-needle.out-of-tune {
+        animation: out-of-tune 0.4s ease-in-out infinite;
       }
 
       .note-flat {
@@ -84,9 +131,15 @@
 
       /* Animaciones para las transiciones de estado */
       @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.02); }
-        100% { transform: scale(1); }
+        0% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.02);
+        }
+        100% {
+          transform: scale(1);
+        }
       }
 
       .note-in-tune .tuner-needle {
@@ -107,30 +160,19 @@
         </h1>
       </header>
 
-      <!-- Selector de Tambor y Modo IA -->
-      <div class="flex items-center justify-between space-x-2 mb-3">
-        <div class="flex items-center space-x-2">
-          <label for="drum-select" class="text-gray-400">Tambor:</label>
-          <select
-            id="drum-select"
-            class="bg-gray-700 text-white rounded-md py-2 px-3"
-          >
-            <option value="kick">Bombo</option>
-            <option value="snare">Tarola</option>
-            <option value="tom-high">Tom Alto</option>
-            <option value="tom-mid">Tom Medio</option>
-            <option value="tom-floor">Tom de Piso</option>
-          </select>
-        </div>
-        
-        <!-- Toggle IA -->
-        <button
-          id="ai-toggle"
-          class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-all duration-200"
-          title="Activar/Desactivar detección mejorada con IA"
+      <!-- Selector de Tambor -->
+      <div class="flex items-center justify-center space-x-2 mb-3">
+        <label for="drum-select" class="text-gray-400">Tambor:</label>
+        <select
+          id="drum-select"
+          class="bg-gray-700 text-white rounded-md py-2 px-3"
         >
-          🤖 IA: ON
-        </button>
+          <option value="kick">Bombo</option>
+          <option value="snare">Tarola</option>
+          <option value="tom-high">Tom Alto</option>
+          <option value="tom-mid">Tom Medio</option>
+          <option value="tom-floor">Tom de Piso</option>
+        </select>
       </div>
 
       <!-- Selector de Nota -->
@@ -166,41 +208,9 @@
         </select>
       </div>
 
-      <!-- Descripción y Guía del Tambor -->
-      <div class="text-center mt-2 space-y-2">
+      <!-- Descripción del Tambor -->
+      <div class="text-center mt-2">
         <p id="drum-description" class="text-sm text-gray-400 italic"></p>
-        
-        <!-- Modal de Guía de Afinación -->
-        <button id="show-guide-btn" class="text-xs text-emerald-400 hover:text-emerald-300 underline">
-          Ver guía de afinación
-        </button>
-        
-        <!-- Modal -->
-        <div id="tuning-guide-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center backdrop-blur-sm">
-          <div class="bg-gray-800 p-6 rounded-xl max-w-lg mx-4 shadow-2xl border border-gray-700">
-            <h2 class="text-xl font-bold text-emerald-400 mb-4">Guía de Afinación</h2>
-            
-            <!-- Contenido específico del tambor -->
-            <div id="drum-guide-content" class="space-y-4">
-              <!-- Se llenará dinámicamente -->
-            </div>
-            
-            <!-- Tips generales -->
-            <div class="mt-6 pt-4 border-t border-gray-700">
-              <h3 class="text-lg font-semibold text-emerald-300 mb-2">Tips Generales</h3>
-              <ul class="text-sm text-gray-300 space-y-2 list-disc pl-4">
-                <li>Afina gradualmente, ajustando los tensores de manera cruzada</li>
-                <li>Golpea cerca del borde para escuchar mejor el tono fundamental</li>
-                <li>Mantén una tensión uniforme en todos los tensores</li>
-                <li>Considera la relación entre parche batidor y resonante</li>
-              </ul>
-            </div>
-            
-            <button id="close-guide-btn" class="mt-6 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition-colors">
-              Cerrar
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- Visualizador del Afinador -->
@@ -227,31 +237,49 @@
             <div
               class="h-6 w-0.5 bg-emerald-400 absolute top-2 left-1/2 -translate-x-1/2"
             ></div>
-            
+
             <!-- Marcadores Laterales -->
             <div class="absolute w-full h-full">
               <!-- -30 cents -->
-              <div class="absolute left-[25%] top-[15%] h-4 w-0.5 bg-gray-500 transform -rotate-30">
-                <span class="absolute -left-4 -top-6 text-xs text-gray-400">-30</span>
+              <div
+                class="absolute left-[25%] top-[15%] h-4 w-0.5 bg-gray-500 transform -rotate-30"
+              >
+                <span class="absolute -left-4 -top-6 text-xs text-gray-400"
+                  >-30</span
+                >
               </div>
-              
+
               <!-- -15 cents -->
-              <div class="absolute left-[37.5%] top-[10%] h-3 w-0.5 bg-gray-500 transform -rotate-15">
-                <span class="absolute -left-4 -top-6 text-xs text-gray-400">-15</span>
+              <div
+                class="absolute left-[37.5%] top-[10%] h-3 w-0.5 bg-gray-500 transform -rotate-15"
+              >
+                <span class="absolute -left-4 -top-6 text-xs text-gray-400"
+                  >-15</span
+                >
               </div>
-              
+
               <!-- +15 cents -->
-              <div class="absolute right-[37.5%] top-[10%] h-3 w-0.5 bg-gray-500 transform rotate-15">
-                <span class="absolute -right-4 -top-6 text-xs text-gray-400">+15</span>
+              <div
+                class="absolute right-[37.5%] top-[10%] h-3 w-0.5 bg-gray-500 transform rotate-15"
+              >
+                <span class="absolute -right-4 -top-6 text-xs text-gray-400"
+                  >+15</span
+                >
               </div>
-              
+
               <!-- +30 cents -->
-              <div class="absolute right-[25%] top-[15%] h-4 w-0.5 bg-gray-500 transform rotate-30">
-                <span class="absolute -right-4 -top-6 text-xs text-gray-400">+30</span>
+              <div
+                class="absolute right-[25%] top-[15%] h-4 w-0.5 bg-gray-500 transform rotate-30"
+              >
+                <span class="absolute -right-4 -top-6 text-xs text-gray-400"
+                  >+30</span
+                >
               </div>
-              
+
               <!-- Línea de referencia -->
-              <div class="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-gray-600 to-transparent top-[20%]"></div>
+              <div
+                class="absolute w-full h-0.5 bg-gradient-to-r from-transparent via-gray-600 to-transparent top-[20%]"
+              ></div>
             </div>
           </div>
           <!-- Aguja -->
@@ -270,13 +298,22 @@
         <div class="flex flex-col items-center space-y-2">
           <!-- Nota Detectada con Animación -->
           <div class="relative">
-            <p id="detected-note" class="text-6xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-500">-</p>
-            <div class="absolute -inset-1 bg-gradient-to-r from-emerald-400/20 to-teal-500/20 blur opacity-50 group-hover:opacity-75 transition duration-200"></div>
+            <p
+              id="detected-note"
+              class="text-6xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-500"
+            >
+              -
+            </p>
+            <div
+              class="absolute -inset-1 bg-gradient-to-r from-emerald-400/20 to-teal-500/20 blur opacity-50 group-hover:opacity-75 transition duration-200"
+            ></div>
           </div>
-          
+
           <!-- Frecuencia Detectada -->
           <div class="bg-gray-800/50 px-4 py-1 rounded-full backdrop-blur-sm">
-            <p id="detected-freq" class="text-emerald-300 text-sm font-mono">-</p>
+            <p id="detected-freq" class="text-emerald-300 text-sm font-mono">
+              -
+            </p>
           </div>
         </div>
       </div>
@@ -284,7 +321,9 @@
       <!-- Botón de Control con Efecto -->
       <div class="text-center mt-6">
         <div class="relative inline-block group">
-          <div class="absolute -inset-1 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-200"></div>
+          <div
+            class="absolute -inset-1 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-200"
+          ></div>
           <button
             id="start-btn"
             class="relative bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold py-3 px-8 rounded-full transition-all duration-200 w-full max-w-xs shadow-lg hover:shadow-emerald-500/25"
@@ -319,75 +358,64 @@
         let mediaStream;
         let isListening = false;
         let animationFrameId;
-        
+        let pitchDetector = null;
+
         // Configuración del analizador
-        const FFT_SIZE = 4096; // Tamaño mayor para mejor resolución en frecuencias bajas
-        const SAMPLE_RATE = 48000; // Tasa de muestreo estándar
-        
+        const FFT_SIZE = 4096;
+        const SAMPLE_RATE = 16000; // Optimal para TensorFlow pitch detection
+
         // Variables para la detección de tono
         let buffer;
-        let autocorrelationBuffer;
-        
+
         // Filtro pasa banda variables
         let lowFrequency = 20; // Frecuencia mínima para tambores (Hz)
         let highFrequency = 500; // Frecuencia máxima para tambores (Hz)
         let frequencyMargin = 15; // Margen de frecuencia más preciso (Hz)
 
         // Variables de umbral y detección
-        let amplitudeThreshold = 0.04; // Umbral de amplitud ajustado para tambores
-        let silenceThreshold = 0.008;
+        let amplitudeThreshold = 0.02; // Umbral de amplitud reducido
+        let silenceThreshold = 0.005;
         let isBelowThreshold = false;
         let belowThresholdStart = null;
         let silenceDurationThreshold = 50; // Reducido para mejor respuesta
-        
-        // Función de autocorrelación para detección precisa de frecuencia
-        function autoCorrelate(buffer, sampleRate) {
-            const SIZE = buffer.length;
-            const MAX_SAMPLES = Math.floor(SIZE/2);
-            let bestOffset = -1;
-            let bestCorrelation = 0;
-            let rms = 0;
-            let foundGoodCorrelation = false;
-            
-            // Calcular RMS (volumen)
-            for (let i = 0; i < SIZE; i++) {
-                const val = buffer[i];
-                rms += val * val;
+
+        // Sistema de suavizado mejorado
+        const HISTORY_SIZE = 8;
+        let freqHistory = [];
+        let confidenceHistory = [];
+        let lastValidFreq = null;
+        let confidenceScore = 0;
+
+        // Inicializar el detector de pitch con TensorFlow
+        const initPitchDetector = async () => {
+          try {
+            // Usar PitchDetection de TensorFlow
+            if (typeof pitchDetection !== "undefined") {
+              pitchDetector = pitchDetection.PitchDetection(
+                mediaStream,
+                audioContext
+              );
+              console.log("TensorFlow Pitch Detector inicializado");
             }
-            rms = Math.sqrt(rms/SIZE);
-            
-            if (rms < 0.01) return -1; // Silencio
-            
-            let lastCorrelation = 1;
-            
-            for (let offset = 2; offset < MAX_SAMPLES; offset++) {
-                let correlation = 0;
-                
-                for (let i = 0; i < MAX_SAMPLES; i++) {
-                    correlation += Math.abs((buffer[i] - buffer[i + offset]));
-                }
-                
-                correlation = 1 - (correlation/MAX_SAMPLES);
-                
-                if ((correlation > 0.9) && (correlation > lastCorrelation)) {
-                    foundGoodCorrelation = true;
-                    if (correlation > bestCorrelation) {
-                        bestCorrelation = correlation;
-                        bestOffset = offset;
-                    }
-                } else if (foundGoodCorrelation) {
-                    let shift = (correlation - lastCorrelation) * 8;
-                    bestOffset = bestOffset - shift;
-                    break;
-                }
-                lastCorrelation = correlation;
+          } catch (err) {
+            console.log("TensorFlow no disponible, usando método FFT");
+          }
+        };
+
+        // Detección de pitch usando FFT como fallback
+        const detectPitchFFT = (frequencyData) => {
+          let maxValue = -Infinity;
+          let maxFrequency = 0;
+
+          for (let i = 0; i < frequencyData.length; i++) {
+            if (frequencyData[i] > maxValue) {
+              maxValue = frequencyData[i];
+              maxFrequency = (i * SAMPLE_RATE) / (frequencyData.length * 2);
             }
-            
-            if (bestCorrelation > 0.01) {
-                return sampleRate/bestOffset;
-            }
-            return -1;
-        }
+          }
+
+          return maxFrequency;
+        };
 
         // Presets de tambores
         const drumPresets = {
@@ -395,34 +423,34 @@
             name: "Bombo",
             range: [30, 80],
             defaultNote: "E2",
-            description: "Frecuencias bajas, generalmente entre E2-G2"
+            description: "Frecuencias bajas, generalmente entre E2-G2",
           },
           snare: {
             name: "Tarola",
             range: [150, 350],
             defaultNote: "D4",
-            description: "Afinación media-alta, típicamente entre C4-E4"
+            description: "Afinación media-alta, típicamente entre C4-E4",
           },
           "tom-high": {
             name: "Tom Alto",
             range: [130, 200],
             defaultNote: "G3",
-            description: "Tom más agudo, generalmente entre F3-A3"
+            description: "Tom más agudo, generalmente entre F3-A3",
           },
           "tom-mid": {
             name: "Tom Medio",
             range: [100, 150],
             defaultNote: "D3",
-            description: "Tom de afinación media, entre C3-E3"
+            description: "Tom de afinación media, entre C3-E3",
           },
           "tom-floor": {
             name: "Tom de Piso",
             range: [65, 100],
             defaultNote: "A2",
-            description: "Tom más grave, típicamente entre G2-B2"
-          }
+            description: "Tom más grave, típicamente entre G2-B2",
+          },
         };
-        
+
         // Notas musicales
         const noteStrings = [
           "C",
@@ -448,112 +476,20 @@
         let lastDetectedFreq = "-";
         let lastTuningStatus = "-";
         let lastStatusColor = "text-gray-400";
-        
-        // Sistema de promediado temporal
-        const HISTORY_SIZE = 5;
-        let freqHistory = [];
-        let lastValidFreq = null;
-        
-        // Variables para IA y análisis avanzado
-        let spectralPeaks = [];
-        let harmonicSeries = [];
-        let confidenceScore = 0;
-        let useAIEnhancement = true;
-        
+
         // Función para calcular el promedio ponderado
         const calculateWeightedAverage = (values) => {
           if (values.length === 0) return null;
-          
-          const weights = values.map((_, i) => Math.pow(0.7, values.length - 1 - i));
+
+          const weights = values.map((_, i) =>
+            Math.pow(0.8, values.length - 1 - i)
+          );
           const weightSum = weights.reduce((a, b) => a + b, 0);
-          
-          return values.reduce((sum, value, i) => sum + value * weights[i], 0) / weightSum;
-        };
-        
-        // Análisis espectral avanzado con detección de armónicos
-        const analyzeSpectrum = (frequencyData) => {
-          const nyquist = SAMPLE_RATE / 2;
-          const binWidth = nyquist / frequencyData.length;
-          
-          // Encontrar peaks en el espectro
-          spectralPeaks = [];
-          const threshold = 0.1 * Math.max(...frequencyData);
-          
-          for (let i = 1; i < frequencyData.length - 1; i++) {
-            if (frequencyData[i] > threshold &&
-                frequencyData[i] > frequencyData[i - 1] &&
-                frequencyData[i] > frequencyData[i + 1]) {
-              
-              const freq = (i * binWidth);
-              const magnitude = frequencyData[i];
-              
-              // Interpolación parabólica para mayor precisión
-              const alpha = frequencyData[i - 1];
-              const beta = frequencyData[i];
-              const gamma = frequencyData[i + 1];
-              
-              const p = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma);
-              const refinedFreq = (i + p) * binWidth;
-              
-              spectralPeaks.push({
-                freq: refinedFreq,
-                magnitude: magnitude,
-                index: i
-              });
-            }
-          }
-          
-          // Ordenar peaks por magnitud
-          spectralPeaks.sort((a, b) => b.magnitude - a.magnitude);
-          return spectralPeaks.slice(0, 10); // Top 10 peaks
-        };
-        
-        // Análisis de serie armónica para verificar el fundamental
-        const detectFundamentalFromHarmonics = (peaks) => {
-          if (peaks.length === 0) return null;
-          
-          // El pico más fuerte es probablemente el fundamental o un armónico
-          const maxPeak = peaks[0];
-          
-          // Buscar patrones armónicos
-          for (let ratio = 1; ratio <= 5; ratio++) {
-            const potentialFundamental = maxPeak.freq / ratio;
-            
-            if (potentialFundamental < lowFrequency || potentialFundamental > highFrequency) {
-              continue;
-            }
-            
-            // Buscar armónicos esperados
-            let harmonicMatch = 0;
-            
-            for (let harmonic = 1; harmonic <= 5; harmonic++) {
-              const expectedFreq = potentialFundamental * harmonic;
-              
-              // Buscar peak cercano
-              const closestPeak = peaks.find(p => 
-                Math.abs(p.freq - expectedFreq) < (expectedFreq * 0.05) // 5% de tolerancia
-              );
-              
-              if (closestPeak) {
-                harmonicMatch += closestPeak.magnitude;
-              }
-            }
-            
-            if (harmonicMatch > 0) {
-              harmonicSeries.push({
-                fundamental: potentialFundamental,
-                confidence: harmonicMatch
-              });
-            }
-          }
-          
-          // Retornar el mejor match
-          if (harmonicSeries.length > 0) {
-            harmonicSeries.sort((a, b) => b.confidence - a.confidence);
-            return harmonicSeries[0];
-          }
-          
-          return null;
+
+          return (
+            values.reduce((sum, value, i) => sum + value * weights[i], 0) /
+            weightSum
+          );
         };
 
         // --- Funciones Principales ---
@@ -612,39 +548,25 @@
             }
 
             mediaStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
+              audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+              },
               video: false,
             });
             source = audioContext.createMediaStreamSource(mediaStream);
 
-            // Crear filtros pasa banda con mayor precisión
-            const highPassFilter = audioContext.createBiquadFilter();
-            highPassFilter.type = "highpass";
-            highPassFilter.frequency.value = lowFrequency;
-            highPassFilter.Q.value = 1.5; // Factor de calidad para un corte más pronunciado
-
-            const lowPassFilter = audioContext.createBiquadFilter();
-            lowPassFilter.type = "lowpass";
-            lowPassFilter.frequency.value = highFrequency;
-            lowPassFilter.Q.value = 1.5;
-
-            // Filtro adicional para reducir resonancias
-            const resonanceFilter = audioContext.createBiquadFilter();
-            resonanceFilter.type = "notch";
-            resonanceFilter.frequency.value = 1000; // Frecuencia típica de resonancia
-            resonanceFilter.Q.value = 5.0;
-
-            // Conectar los nodos con la cadena de filtros mejorada
-            source.connect(highPassFilter);
-            highPassFilter.connect(lowPassFilter);
-            lowPassFilter.connect(resonanceFilter);
-
+            // Conectar directamente al analizador sin filtros
             analyser = audioContext.createAnalyser();
             analyser.fftSize = FFT_SIZE;
-            analyser.smoothingTimeConstant = 0.4; // Suavizado para reducir fluctuaciones
+            analyser.smoothingTimeConstant = 0.3;
+            source.connect(analyser);
+
             buffer = new Float32Array(FFT_SIZE);
-            autocorrelationBuffer = new Float32Array(FFT_SIZE);
-            lowPassFilter.connect(analyser);
+
+            // Inicializar detector de pitch con TensorFlow
+            await initPitchDetector();
 
             isListening = true;
             startBtn.textContent = "Detener";
@@ -684,66 +606,54 @@
 
         const analyze = () => {
           analyser.getFloatTimeDomainData(buffer);
-          
+
           // Calcular RMS
           const rms = Math.sqrt(
             buffer.reduce((s, v) => s + v * v, 0) / buffer.length
           );
-          
+
           let fundamentalFreq = null;
-          
-          // Aplicar puerta de amplitud y detección de silencio
+
+          // Aplicar puerta de amplitud
           if (rms > amplitudeThreshold) {
             if (isBelowThreshold) {
               isBelowThreshold = false;
               belowThresholdStart = null;
             }
-            
-            // Obtener datos de frecuencia para análisis espectral
+
+            // Obtener datos de frecuencia
             const frequencyData = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(frequencyData);
-            
-            // Convertir a valores 0-1
-            const normalizedFreqData = Array.from(frequencyData).map(x => x / 255);
-            
-            let detectedFreq = null;
-            
-            // Usar análisis con IA si está habilitado
-            if (useAIEnhancement) {
-              // Análisis espectral avanzado
-              const peaks = analyzeSpectrum(normalizedFreqData);
-              harmonicSeries = [];
-              const harmonicResult = detectFundamentalFromHarmonics(peaks);
-              
-              // Combinar múltiples métodos de detección
-              if (harmonicResult) {
-                detectedFreq = harmonicResult.fundamental;
-                confidenceScore = Math.min(1, harmonicResult.confidence / 1000);
-              }
-            }
-            
-            // Fallback: usar autocorrelación si el análisis con IA no da resultado
-            if (!detectedFreq) {
-              detectedFreq = autoCorrelate(buffer, SAMPLE_RATE);
-              confidenceScore = 0.7; // Confianza moderada para autocorrelación
-            }
-            
+
+            // Usar FFT para detectar el pitch
+            let detectedFreq = detectPitchFFT(frequencyData);
+
             // Validar que la frecuencia está en el rango esperado
-            if (detectedFreq !== -1 && detectedFreq !== null && 
-                detectedFreq >= lowFrequency && detectedFreq <= highFrequency) {
-              
+            if (
+              detectedFreq > 0 &&
+              detectedFreq >= lowFrequency &&
+              detectedFreq <= highFrequency
+            ) {
               // Agregar la nueva frecuencia al historial
               freqHistory.push(detectedFreq);
+              confidenceHistory.push(0.8); // Confianza moderada para FFT
+
               if (freqHistory.length > HISTORY_SIZE) {
                 freqHistory.shift();
+                confidenceHistory.shift();
               }
-              
+
               // Calcular el promedio ponderado
               const avgFreq = calculateWeightedAverage(freqHistory);
               if (avgFreq !== null) {
                 fundamentalFreq = avgFreq;
+
+                // Calcular confianza promedio
+                confidenceScore =
+                  confidenceHistory.reduce((a, b) => a + b, 0) /
+                  confidenceHistory.length;
               }
-              
+
               lastValidFreq = fundamentalFreq;
             } else {
               fundamentalFreq = null;
@@ -752,20 +662,24 @@
             if (!isBelowThreshold) {
               isBelowThreshold = true;
               belowThresholdStart = performance.now();
-            } else if (performance.now() - belowThresholdStart > silenceDurationThreshold) {
+            } else if (
+              performance.now() - belowThresholdStart >
+              silenceDurationThreshold
+            ) {
               fundamentalFreq = null;
               lastValidFreq = null;
+              freqHistory = [];
+              confidenceHistory = [];
             }
           }
 
           if (fundamentalFreq) {
             updateUI(fundamentalFreq);
           } else {
-            // Si no se detecta frecuencia, mantener los últimos valores
             detectedNoteEl.textContent = lastDetectedNote;
             detectedFreqEl.textContent = lastDetectedFreq;
-            tuningFeedback.textContent = lastTuningStatus; // Mostrar el último estado
-            tuningFeedback.className = `text-2xl font-semibold h-8 ${lastStatusColor}`; // Mostrar el último color
+            tuningFeedback.textContent = lastTuningStatus;
+            tuningFeedback.className = `text-2xl font-semibold h-8 ${lastStatusColor}`;
             resetTuner();
           }
 
@@ -777,10 +691,12 @@
           const centsOff = calculateCents(freq, targetNoteInfo.frequency);
 
           detectedNoteEl.textContent = `${noteInfo.note}${noteInfo.octave}`;
-          
-          // Mostrar frecuencia y confianza de la IA
+
+          // Mostrar frecuencia y confianza
           const confidencePercent = Math.round(confidenceScore * 100);
-          detectedFreqEl.textContent = `${freq.toFixed(1)} Hz (Confianza: ${confidencePercent}%)`;
+          detectedFreqEl.textContent = `${freq.toFixed(
+            1
+          )} Hz (${confidencePercent}%)`;
 
           // Actualizar las últimas notas detectadas
           lastDetectedNote = `${noteInfo.note}${noteInfo.octave}`;
@@ -790,45 +706,65 @@
           let statusColor = "";
           let circleClass = "";
 
-          // Resetear la aguja a la posición central antes de calcular la nueva rotación
-          tunerNeedle.style.transform = "rotate(0deg)";
-
           // Solo mostrar feedback si la nota detectada es la correcta
           if (
             noteInfo.note === targetNoteInfo.note &&
             noteInfo.octave === targetNoteInfo.octave
           ) {
-            if (Math.abs(centsOff) < 5) {
-              // Rango de afinación
-              status = "¡Afinado!";
-              statusColor = "text-emerald-400";
-              circleClass = "note-in-tune";
-            } else if (centsOff < 0) {
-              status = "Bajo";
-              statusColor = "text-red-400";
-              circleClass = "note-flat";
+            // Calcular rotación de la aguja con mayor rango
+            let rotation = 0;
+            if (Math.abs(centsOff) <= 50) {
+              rotation = centsOff * 0.8; // Máximo ±40 grados para ±50 cents
             } else {
-              status = "Alto";
-              statusColor = "text-red-400";
-              circleClass = "note-sharp";
+              rotation = Math.sign(centsOff) * 40;
             }
 
-            // Mover la aguja
-            // Limitamos la rotación a un máximo de +/- 45 grados
-            const rotation = Math.max(-45, Math.min(45, centsOff * 0.9));
             tunerNeedle.style.transform = `rotate(${rotation}deg)`;
+
+            // Clasificación de afinación
+            if (Math.abs(centsOff) < 5) {
+              // Afinado
+              status = "✓ Afinado";
+              statusColor = "text-emerald-400";
+              circleClass = "note-in-tune";
+              tunerNeedle.classList.remove("out-of-tune");
+              tunerNeedle.classList.add("tuned");
+            } else if (centsOff < -5) {
+              // Muy bajo
+              if (centsOff < -20) {
+                status = "▼▼ Muy bajo";
+              } else {
+                status = "▼ Bajo";
+              }
+              statusColor = "text-orange-400";
+              circleClass = "note-flat";
+              tunerNeedle.classList.remove("tuned");
+              tunerNeedle.classList.add("out-of-tune");
+            } else {
+              // Muy alto
+              if (centsOff > 20) {
+                status = "▲▲ Muy alto";
+              } else {
+                status = "▲ Alto";
+              }
+              statusColor = "text-orange-400";
+              circleClass = "note-sharp";
+              tunerNeedle.classList.remove("tuned");
+              tunerNeedle.classList.add("out-of-tune");
+            }
           } else {
-            // Si la nota es incorrecta, reseteamos la aguja y el feedback
-            status = "...";
-            statusColor = "text-gray-400";
+            // Si la nota es incorrecta
+            status = "Nota incorrecta";
+            statusColor = "text-yellow-400";
             tunerNeedle.style.transform = "rotate(0deg)";
+            tunerNeedle.classList.remove("tuned", "out-of-tune");
           }
 
           tuningFeedback.textContent = status;
           tuningFeedback.className = `text-2xl font-semibold h-8 ${statusColor}`;
           tunerCircle.className = `tuner-circle relative w-64 h-64 sm:w-72 sm:h-72 bg-gray-900 rounded-full flex items-center justify-center border-4 border-gray-700 ${circleClass}`;
 
-          // Actualizar el último estado de afinación y color
+          // Actualizar el último estado
           lastTuningStatus = status;
           lastStatusColor = statusColor;
         };
@@ -841,53 +777,6 @@
         };
 
         // --- Funciones de Cálculo ---
-
-        // Algoritmo de Autocorrelación para encontrar frecuencia fundamental
-        function findFundamentalFreq(buffer, sampleRate, freqRange) {
-          const SIZE = buffer.length;
-          let r = new Float32Array(SIZE);
-          for (let i = 0; i < SIZE; i++) {
-            for (let j = 0; j < SIZE - i; j++) {
-              r[i] += buffer[j] * buffer[j + i];
-            }
-          }
-
-          let d = 0;
-          while (d < r.length && r[d] > r[d + 1]) d++;
-
-          let maxval = -1,
-            maxpos = -1;
-          for (let i = d; i < SIZE; i++) {
-            if (r[i] > maxval) {
-              maxval = r[i];
-              maxpos = i;
-            }
-          }
-
-          if (maxpos === -1) return null;
-
-          // Interpolación para mayor precisión
-          const T0 = maxpos;
-          const x1 = r[T0 - 1],
-            x2 = r[T0],
-            x3 = r[T0 + 1];
-          const a = (x1 + x3 - 2 * x2) / 2;
-          const b = (x3 - x1) / 2;
-          if (a === 0) return null;
-
-          const T_true = T0 - b / (2 * a);
-          const freq = sampleRate / T_true;
-
-          // Filtrar por rango de frecuencia del tambor y RMS para evitar ruido
-          const rms = Math.sqrt(
-            buffer.reduce((s, v) => s + v * v, 0) / buffer.length
-          );
-          if (freq >= freqRange[0] && freq <= freqRange[1] && rms > 0.01) {
-            return freq;
-          }
-
-          return null;
-        }
 
         const frequencyToNoteDetails = (frequency) => {
           const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
@@ -925,173 +814,35 @@
         noteSelect.addEventListener("change", updateTargetNote);
         octaveSelect.addEventListener("change", updateTargetNote);
 
-        // Guías de afinación específicas para cada tambor
-        const tuningGuides = {
-          kick: {
-            title: "Afinación del Bombo",
-            notes: [
-              { note: "E2", desc: "Sonido profundo y resonante" },
-              { note: "F2", desc: "Balance entre ataque y profundidad" },
-              { note: "G2", desc: "Más ataque, ideal para rock" }
-            ],
-            tips: [
-              "El parche resonante afecta la proyección y sustain",
-              "Un poco más flojo el batidor para mejor respuesta del pedal",
-              "Evita tensión excesiva que puede reducir las frecuencias bajas"
-            ]
-          },
-          snare: {
-            title: "Afinación de la Tarola",
-            notes: [
-              { note: "D4", desc: "Sonido clásico de rock" },
-              { note: "E4", desc: "Pop y fusión" },
-              { note: "C4", desc: "Sonido más profundo, estilo vintage" }
-            ],
-            tips: [
-              "Parche resonante generalmente más tenso que el batidor",
-              "Ajusta la tensión de la bordonera según el estilo",
-              "Busca un buen balance entre ataque y resonancia"
-            ]
-          },
-          "tom-high": {
-            title: "Afinación del Tom Alto",
-            notes: [
-              { note: "G3", desc: "Afinación estándar" },
-              { note: "A3", desc: "Más proyección" },
-              { note: "F3", desc: "Sonido más profundo" }
-            ],
-            tips: [
-              "Mantén una diferencia de tercera mayor con el tom medio",
-              "Parche resonante ligeramente más bajo que el batidor",
-              "Evita tensión excesiva que puede producir rebote indeseado"
-            ]
-          },
-          "tom-mid": {
-            title: "Afinación del Tom Medio",
-            notes: [
-              { note: "D3", desc: "Afinación estándar" },
-              { note: "E3", desc: "Más proyección" },
-              { note: "C3", desc: "Sonido más profundo" }
-            ],
-            tips: [
-              "Busca un intervalo musical con el tom alto y el tom de piso",
-              "Equilibra la resonancia con el ataque",
-              "Ajusta según el estilo musical principal"
-            ]
-          },
-          "tom-floor": {
-            title: "Afinación del Tom de Piso",
-            notes: [
-              { note: "A2", desc: "Afinación estándar" },
-              { note: "G2", desc: "Sonido más profundo" },
-              { note: "B2", desc: "Más definición" }
-            ],
-            tips: [
-              "Mantén una buena separación tonal con el tom medio",
-              "El parche resonante puede estar un poco más tenso para más proyección",
-              "Evita afinación demasiado baja que produzca arrugas"
-            ]
-          }
-        };
-
         const drumSelect = document.getElementById("drum-select");
-        const showGuideBtn = document.getElementById("show-guide-btn");
-        const closeGuideBtn = document.getElementById("close-guide-btn");
-        const tuningGuideModal = document.getElementById("tuning-guide-modal");
-        const drumGuideContent = document.getElementById("drum-guide-content");
-        const aiToggle = document.getElementById("ai-toggle");
-        
-        // Toggle para el modo IA
-        aiToggle.addEventListener("click", () => {
-          useAIEnhancement = !useAIEnhancement;
-          
-          if (useAIEnhancement) {
-            aiToggle.textContent = "🤖 IA: ON";
-            aiToggle.classList.remove("bg-gray-600", "hover:bg-gray-700");
-            aiToggle.classList.add("bg-purple-600", "hover:bg-purple-700");
-          } else {
-            aiToggle.textContent = "🤖 IA: OFF";
-            aiToggle.classList.remove("bg-purple-600", "hover:bg-purple-700");
-            aiToggle.classList.add("bg-gray-600", "hover:bg-gray-700");
-          }
-        });
-        
+
         const updateDrumPreset = () => {
           const selectedDrum = drumPresets[drumSelect.value];
-          
+
           // Actualizar rangos de frecuencia
           lowFrequency = selectedDrum.range[0];
           highFrequency = selectedDrum.range[1];
-          
+
           // Establecer la nota predeterminada
-          const [note, octave] = selectedDrum.defaultNote.match(/([A-G]#?)(\d)/).slice(1);
+          const [note, octave] = selectedDrum.defaultNote
+            .match(/([A-G]#?)(\d)/)
+            .slice(1);
           noteSelect.value = note;
           octaveSelect.value = octave;
-          
+
           // Actualizar la nota objetivo
           updateTargetNote();
-          
+
           // Mostrar descripción del tambor
           const descriptionEl = document.getElementById("drum-description");
           if (descriptionEl) {
             descriptionEl.textContent = selectedDrum.description;
           }
-          
-          // Actualizar contenido de la guía
-          updateTuningGuide(drumSelect.value);
         };
-        
-        const updateTuningGuide = (drumType) => {
-          const guide = tuningGuides[drumType];
-          if (!guide || !drumGuideContent) return;
-          
-          drumGuideContent.innerHTML = `
-            <h3 class="text-lg font-semibold text-emerald-300">${guide.title}</h3>
-            
-            <!-- Notas Recomendadas -->
-            <div class="space-y-2">
-              <h4 class="text-sm font-semibold text-emerald-200">Notas Recomendadas:</h4>
-              <ul class="text-sm space-y-1">
-                ${guide.notes.map(note => `
-                  <li class="flex justify-between items-center bg-gray-700/50 p-2 rounded">
-                    <span class="font-mono text-emerald-300">${note.note}</span>
-                    <span class="text-gray-300">${note.desc}</span>
-                  </li>
-                `).join('')}
-              </ul>
-            </div>
-            
-            <!-- Tips Específicos -->
-            <div class="mt-4 space-y-2">
-              <h4 class="text-sm font-semibold text-emerald-200">Tips Específicos:</h4>
-              <ul class="text-sm text-gray-300 space-y-1 list-disc pl-4">
-                ${guide.tips.map(tip => `<li>${tip}</li>`).join('')}
-              </ul>
-            </div>
-          `;
-        };
-        
-        // Event listeners para el modal
-        showGuideBtn.addEventListener("click", () => {
-          tuningGuideModal.classList.remove("hidden");
-          tuningGuideModal.classList.add("flex");
-        });
-        
-        closeGuideBtn.addEventListener("click", () => {
-          tuningGuideModal.classList.add("hidden");
-          tuningGuideModal.classList.remove("flex");
-        });
-        
-        tuningGuideModal.addEventListener("click", (e) => {
-          if (e.target === tuningGuideModal) {
-            tuningGuideModal.classList.add("hidden");
-            tuningGuideModal.classList.remove("flex");
-          }
-        });
-        
+
         // Event listeners
         drumSelect.addEventListener("change", updateDrumPreset);
-        
+
         // Inicializar con el primer tambor
         updateDrumPreset();
       });
