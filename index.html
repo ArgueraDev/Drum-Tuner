@@ -373,11 +373,11 @@
         let frequencyMargin = 15; // Margen de frecuencia más preciso (Hz)
 
         // Variables de umbral y detección
-        let amplitudeThreshold = 0.02; // Umbral de amplitud reducido
+        let amplitudeThreshold = 0.01; // Umbral muy reducido para capturar golpes débiles
         let silenceThreshold = 0.005;
         let isBelowThreshold = false;
         let belowThresholdStart = null;
-        let silenceDurationThreshold = 50; // Reducido para mejor respuesta
+        let silenceDurationThreshold = 30; // Reducido aún más
 
         // Sistema de suavizado mejorado
         const HISTORY_SIZE = 8;
@@ -402,19 +402,54 @@
           }
         };
 
-        // Detección de pitch usando FFT como fallback
-        const detectPitchFFT = (frequencyData) => {
-          let maxValue = -Infinity;
-          let maxFrequency = 0;
+        // Detección mejorada de pitch usando autocorrelación
+        const detectPitch = (buffer) => {
+          const SIZE = buffer.length;
+          const MAX_SAMPLES = Math.floor(SIZE / 2);
+          let bestOffset = -1;
+          let bestCorrelation = 0;
+          let rms = 0;
+          let foundGoodCorrelation = false;
 
-          for (let i = 0; i < frequencyData.length; i++) {
-            if (frequencyData[i] > maxValue) {
-              maxValue = frequencyData[i];
-              maxFrequency = (i * SAMPLE_RATE) / (frequencyData.length * 2);
+          // Calcular RMS
+          for (let i = 0; i < SIZE; i++) {
+            const val = buffer[i];
+            rms += val * val;
+          }
+          rms = Math.sqrt(rms / SIZE);
+
+          if (rms < 0.001) return 0; // Silencio
+
+          let lastCorrelation = 1;
+
+          for (let offset = 2; offset < MAX_SAMPLES; offset++) {
+            let correlation = 0;
+
+            for (let i = 0; i < MAX_SAMPLES; i++) {
+              correlation += Math.abs(buffer[i] - buffer[i + offset]);
             }
+
+            correlation = 1 - correlation / MAX_SAMPLES;
+
+            if (correlation > 0.9 && correlation > lastCorrelation) {
+              foundGoodCorrelation = true;
+              if (correlation > bestCorrelation) {
+                bestCorrelation = correlation;
+                bestOffset = offset;
+              }
+            } else if (foundGoodCorrelation) {
+              let shift = (correlation - lastCorrelation) * 8;
+              bestOffset = bestOffset - shift;
+              break;
+            }
+            lastCorrelation = correlation;
           }
 
-          return maxFrequency;
+          if (bestCorrelation > 0.01) {
+            const freq = SAMPLE_RATE / bestOffset;
+            return freq;
+          }
+          return 0;
         };
 
         // Presets de tambores
@@ -569,6 +604,10 @@
             await initPitchDetector();
 
             isListening = true;
+            console.log("🎤 Micrófono activado - Comenzando análisis");
+            console.log(
+              `📊 Configuración: FFT=${FFT_SIZE}, SampleRate=${SAMPLE_RATE}Hz`
+            );
             startBtn.textContent = "Detener";
             startBtn.classList.replace("bg-emerald-600", "bg-red-600");
             startBtn.classList.replace(
@@ -614,19 +653,15 @@
 
           let fundamentalFreq = null;
 
-          // Aplicar puerta de amplitud
+          // Aplicar puerta de amplitud con umbral muy bajo
           if (rms > amplitudeThreshold) {
             if (isBelowThreshold) {
               isBelowThreshold = false;
               belowThresholdStart = null;
             }
 
-            // Obtener datos de frecuencia
-            const frequencyData = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(frequencyData);
-
-            // Usar FFT para detectar el pitch
-            let detectedFreq = detectPitchFFT(frequencyData);
+            // Usar autocorrelación para mejor detección
+            let detectedFreq = detectPitch(buffer);
 
             // Validar que la frecuencia está en el rango esperado
             if (
@@ -636,7 +671,7 @@
             ) {
               // Agregar la nueva frecuencia al historial
               freqHistory.push(detectedFreq);
-              confidenceHistory.push(0.8); // Confianza moderada para FFT
+              confidenceHistory.push(0.9); // Confianza alta para autocorrelación
 
               if (freqHistory.length > HISTORY_SIZE) {
                 freqHistory.shift();
@@ -656,7 +691,43 @@
 
               lastValidFreq = fundamentalFreq;
             } else {
-              fundamentalFreq = null;
+              // Intenta con FFT si autocorrelación no funciona
+              const frequencyData = new Uint8Array(
+                analyser.frequencyBinCount
+              );
+              analyser.getByteFrequencyData(frequencyData);
+
+              let maxValue = -Infinity;
+              let maxFrequency = 0;
+
+              for (let i = 5; i < frequencyData.length; i++) {
+                if (frequencyData[i] > maxValue) {
+                  maxValue = frequencyData[i];
+                  maxFrequency = (i * SAMPLE_RATE) / (frequencyData.length * 2);
+                }
+              }
+
+              if (
+                maxFrequency > lowFrequency &&
+                maxFrequency < highFrequency &&
+                maxValue > 30
+              ) {
+                freqHistory.push(maxFrequency);
+                confidenceHistory.push(0.6);
+
+                if (freqHistory.length > HISTORY_SIZE) {
+                  freqHistory.shift();
+                  confidenceHistory.shift();
+                }
+
+                const avgFreq = calculateWeightedAverage(freqHistory);
+                if (avgFreq !== null) {
+                  fundamentalFreq = avgFreq;
+                  confidenceScore =
+                    confidenceHistory.reduce((a, b) => a + b, 0) /
+                    confidenceHistory.length;
+                }
+              }
             }
           } else {
             if (!isBelowThreshold) {
@@ -697,6 +768,10 @@
           detectedFreqEl.textContent = `${freq.toFixed(
             1
           )} Hz (${confidencePercent}%)`;
+
+          console.log(
+            `🎵 Detectado: ${noteInfo.note}${noteInfo.octave} @ ${freq.toFixed(1)}Hz (${centsOff.toFixed(1)} cents)`
+          );
 
           // Actualizar las últimas notas detectadas
           lastDetectedNote = `${noteInfo.note}${noteInfo.octave}`;
